@@ -451,6 +451,11 @@ static const SchemaQuery Query_for_list_of_views = {
 "   FROM pg_catalog.pg_available_extensions "\
 "  WHERE substring(pg_catalog.quote_ident(name),1,%d)='%s' AND installed_version IS NULL"
 
+#define Query_for_list_of_prepared_statements \
+" SELECT pg_catalog.quote_ident(name) "\
+"   FROM pg_catalog.pg_prepared_statements "\
+"  WHERE substring(pg_catalog.quote_ident(name),1,%d)='%s'"
+
 /*
  * This is a list of all "things" in Pgsql, which can show up after CREATE or
  * DROP; and there is also a query to get a list of them.
@@ -529,13 +534,16 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 	/* This is the variable we'll return. */
 	char *matches = NULL;
 
-	/* These are going to contain some scannage of the input line. */
-	char	   *prev_wd,
-			   *prev2_wd,
-			   *prev3_wd,
-			   *prev4_wd,
-			   *prev5_wd,
-			   *prev6_wd;
+	/* This array will contain some scannage of the input line. */
+	char	   *previous_words[6];
+
+	/* For compactness, we use these macros to reference previous_words[]. */
+#define prev_wd   (previous_words[0])
+#define prev2_wd  (previous_words[1])
+#define prev3_wd  (previous_words[2])
+#define prev4_wd  (previous_words[3])
+#define prev5_wd  (previous_words[4])
+#define prev6_wd  (previous_words[5])
 
 	static const char *const sql_commands[] = {
 		"ABORT", "ALTER", "ANALYZE", "BEGIN", "CHECKPOINT", "CLOSE", "CLUSTER",
@@ -554,7 +562,7 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 		"\\dF", "\\dFd", "\\dFp", "\\dFt", "\\dg", "\\di", "\\dl", "\\dL",
 		"\\dn", "\\do", "\\dp", "\\drds", "\\ds", "\\dS", "\\dt", "\\dT", "\\dv", "\\du",
 		"\\e", "\\echo", "\\ef", "\\encoding",
-		"\\f", "\\g", "\\h", "\\help", "\\H", "\\i", "\\l",
+		"\\f", "\\g", "\\h", "\\help", "\\H", "\\i", "\\ir", "\\l",
 		"\\lo_import", "\\lo_export", "\\lo_list", "\\lo_unlink",
 		"\\o", "\\p", "\\password", "\\prompt", "\\pset", "\\q", "\\qecho", "\\r",
 		"\\set", "\\sf", "\\t", "\\T",
@@ -574,16 +582,11 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 	completion_info_charp2 = NULL;
 
 	/*
-	 * Scan the input line before our current position for the last six
+	 * Scan the input line before our current position for the last few
 	 * words. According to those we'll make some smart decisions on what the
-	 * user is probably intending to type. TODO: Use strtokx() to do this.
+	 * user is probably intending to type.
 	 */
-	prev_wd = previous_word(start, 0);
-	prev2_wd = previous_word(start, 1);
-	prev3_wd = previous_word(start, 2);
-	prev4_wd = previous_word(start, 3);
-	prev5_wd = previous_word(start, 4);
-	prev6_wd = previous_word(start, 5);
+	get_previous_words(start, previous_words, lengthof(previous_words));
 
 	/* If a backslash command was started, continue */
 	if (text[0] == '\\')
@@ -601,7 +604,7 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 	}
 
 	/* If no previous word, suggest one of the basic sql commands */
-	else if (!prev_wd)
+	else if (prev_wd[0] == '\0')
 		COMPLETE_WITH_LIST(sql_commands);
 
 /* CREATE */
@@ -609,10 +612,10 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 	else if (pg_strcasecmp(prev_wd, "CREATE") == 0)
 		matches = complete_create_command(text);
 
-/* DROP, but watch out for DROP embedded in other commands */
+/* DROP, but not DROP embedded in other commands */
 	/* complete with something you can drop */
 	else if (pg_strcasecmp(prev_wd, "DROP") == 0 &&
-			 pg_strcasecmp(prev2_wd, "DROP") == 0)
+			 prev2_wd[0] == '\0')
 		matches = completion_matches(text, drop_command_generator);
 
 /* ALTER */
@@ -1729,7 +1732,8 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 			 pg_strcasecmp(prev_wd, "ON") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_views, NULL);
 	/* complete CREATE TRIGGER ... EXECUTE with PROCEDURE */
-	else if (pg_strcasecmp(prev_wd, "EXECUTE") == 0)
+	else if (pg_strcasecmp(prev_wd, "EXECUTE") == 0 &&
+			 prev2_wd[0] != '\0')
 		COMPLETE_WITH_CONST("PROCEDURE");
 
 /* CREATE ROLE,USER,GROUP */
@@ -1937,6 +1941,11 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 
 		COMPLETE_WITH_LIST(list_ALTERTEXTSEARCH);
 	}
+
+/* EXECUTE, but not EXECUTE embedded in other commands */
+	else if (pg_strcasecmp(prev_wd, "EXECUTE") == 0 &&
+			 prev2_wd[0] == '\0')
+		COMPLETE_WITH_QUERY(Query_for_list_of_prepared_statements);
 
 /* EXPLAIN */
 
@@ -2467,6 +2476,11 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 	else if (pg_strcasecmp(prev_wd, "START") == 0)
 		COMPLETE_WITH_CONST("TRANSACTION");
 
+/* TABLE, but not TABLE embedded in other commands */
+	else if (pg_strcasecmp(prev_wd, "TABLE") == 0 &&
+			 prev2_wd[0] == '\0')
+		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_relations, NULL);
+
 /* TRUNCATE */
 	else if (pg_strcasecmp(prev_wd, "TRUNCATE") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tables, NULL);
@@ -2693,6 +2707,7 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 			 strcmp(prev_wd, "\\e") == 0 || strcmp(prev_wd, "\\edit") == 0 ||
 			 strcmp(prev_wd, "\\g") == 0 ||
 		  strcmp(prev_wd, "\\i") == 0 || strcmp(prev_wd, "\\include") == 0 ||
+		  strcmp(prev_wd, "\\ir") == 0 || strcmp(prev_wd, "\\include_relative") == 0 ||
 			 strcmp(prev_wd, "\\o") == 0 || strcmp(prev_wd, "\\out") == 0 ||
 			 strcmp(prev_wd, "\\s") == 0 ||
 			 strcmp(prev_wd, "\\w") == 0 || strcmp(prev_wd, "\\write") == 0
@@ -2736,12 +2751,12 @@ static char * psql_completion(char *text, int start, int end, void *dbptr)
 	}
 
 	/* free storage */
-	free(prev_wd);
-	free(prev2_wd);
-	free(prev3_wd);
-	free(prev4_wd);
-	free(prev5_wd);
-	free(prev6_wd);
+	{
+		int			i;
+
+		for (i = 0; i < lengthof(previous_words); i++)
+			free(previous_words[i]);
+	}
 
 	/* Return our Grand List O' Matches */
 	return matches;
