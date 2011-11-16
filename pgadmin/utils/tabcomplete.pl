@@ -25,15 +25,15 @@ my $alltxt = <F>;
 close(F);
 
 # Get rid of everything before and after the parts we're interested in
-$alltxt =~ /.*(typedef struct SchemaQuery.*)\/\* GENERATOR FUNCTIONS\s+.*/s || die("Failed match 1");
+$alltxt =~ /.*(typedef struct SchemaQuery.*)\/\*(?:\s+\*)* GENERATOR FUNCTIONS\s+.*/s || die("Failed match 1");
 $alltxt = $1;
 
 # Get rid of forward declarations and initialize_readline
-$alltxt =~ /(.*)\/\*\s+Forward declaration of functions \*\/.*(\/\* The completion function\..*)/s || die("Failed match 2");
+$alltxt =~ /(.*)\/\*(?:\s+\*)*\s+Forward declaration of functions \*\/.*(\/\*(?:\s+\*)* The completion function\..*)/s || die("Failed match 2");
 $alltxt = $1 . $2;
 
 # Get rid of completion macros, we define them ourselves
-$alltxt =~ /(.*)\/\* A couple of macros to ease typing.*\*\/\s+#define COMPLETE_WITH_QUERY.*\s+(\/\*\s+\* Assembly instructions.*)/s || die("Failed match 4");
+$alltxt =~ /(.*)\/\*(?:\s+\*)* A (?:couple of|few) macros to ease typing.*\*\/\s+#define COMPLETE_WITH_QUERY.*\s+(\/\*\s+\* Assembly instructions.*)/s || die("Failed match 4");
 $alltxt = $1 . $2;
 
 # Rewrite matches that don't use the macros
